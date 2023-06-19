@@ -1,0 +1,126 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: esearch
+spec:
+  version: 8.8.1
+  http:
+    service:
+      spec:
+        type: LoadBalancer
+    tls:
+      selfSignedCertificate:
+        subjectAltNames:
+        - dns: localhost
+        - dns: es.esearch.app
+  #link: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-update-strategy.html
+  updateStrategy:
+    changeBudget:
+      maxSurge: 1
+      maxUnavailable: 1
+  #link: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-pod-disruption-budget.html
+  podDisruptionBudget:
+    spec:
+      minAvailable: 4
+      selector:
+        matchLabels:
+          elasticsearch.k8s.elastic.co/cluster-name: esearch
+  #Behind the scenes, ECK translates each NodeSet specified in the Elasticsearch resource into a StatefulSet in Kubernetes
+  #Upgrade Patterns:  #Behind the scenes, ECK translates each NodeSet specified in the Elasticsearch resource into a StatefulSet in Kubernetes
+  nodeSets:
+  - name: masters
+    count: 3
+    config:
+      node.roles: ["master"]
+      # node.store.allow_mmap: false
+      xpack.ml.enabled: true
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: gp2
+    podTemplate:
+      metadata:
+        labels:
+          app: elasticsearch
+      spec:
+        terminationGracePeriodSeconds: 150
+      #link: https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-advanced-node-scheduling.html#k8s-affinity-options
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    elasticsearch.k8s.elastic.co/cluster-name: esearch
+                topologyKey: kubernetes.io/hostname
+        #https://www.elastic.co/guide/en/cloud-on-k8s/current/k8s-virtual-memory.html#k8s_using_an_init_container_to_set_virtual_memory
+        initContainers:
+        - name: sysctl
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+        containers:
+        - name: elasticsearch
+          resources:
+            limits:
+              memory: 3Gi
+            requests:
+              memory: 2Gi
+          env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms1g -Xmx1g"
+  - name: data
+    count: 2
+    config:
+      node.roles: ["data"]
+      # node.store.allow_mmap: false
+      xpack.ml.enabled: true
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        storageClassName: gp2
+    podTemplate:
+      metadata:
+        labels:
+          app: elasticsearch
+      spec:
+        terminationGracePeriodSeconds: 150
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    elasticsearch.k8s.elastic.co/cluster-name: esearch
+                topologyKey: kubernetes.io/hostname
+        initContainers:
+        - name: sysctl
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+        containers:
+        - name: elasticsearch
+          resources:
+            limits:
+              memory: 3Gi
+            requests:
+              memory: 2Gi
+          env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms1g -Xmx1g"
